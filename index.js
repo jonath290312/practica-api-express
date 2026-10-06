@@ -1,84 +1,216 @@
+require('dotenv').config();
+
 const express = require('express');
+const db = require('./config/db');
+
 const app = express();
 
 app.use(express.json());
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
-let productos = [
-    { id: 1, nombre: 'Laptop', precio: 15000 },
-    { id: 2, nombre: 'Mouse', precio: 350 },
-    { id: 3, nombre: 'Teclado', precio: 700 }
-];
 
+// Ruta principal
 app.get('/', (req, res) => {
+
     res.send('Servidor funcionando correctamente');
+
 });
 
-app.get('/api/productos', (req, res) => {
-    res.json(productos);
-});
 
-app.get('/api/productos/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const producto = productos.find(p => p.id === id);
+// GET - Obtener todos los productos
+app.get('/api/productos', async (req, res) => {
 
-    if (!producto) {
-        return res.status(404).json({
-            mensaje: 'Producto no encontrado'
+    try {
+
+        const [productos] = await db.execute(
+            'SELECT * FROM productos'
+        );
+
+        res.status(200).json(productos);
+
+    } catch (error) {
+
+        console.error('Error al obtener los productos:', error);
+
+        res.status(500).json({
+            mensaje: 'Error interno del servidor'
         });
     }
 
-    res.json(producto);
 });
 
-app.post('/api/productos', (req, res) => {
-    const nuevoProducto = {
-        id: productos.length + 1,
-        nombre: req.body.nombre,
-        precio: req.body.precio
-    };
 
-    productos.push(nuevoProducto);
+// GET - Obtener producto por ID
+app.get('/api/productos/:id', async (req, res) => {
 
-    res.status(201).json(nuevoProducto);
-});
-app.put('/api/productos/:id', (req, res) => {
+    try {
 
-    const id = parseInt(req.params.id);
+        const { id } = req.params;
 
-    const producto = productos.find(p => p.id === id);
+        const [productos] = await db.execute(
+            'SELECT * FROM productos WHERE id = ?',
+            [id]
+        );
 
-    if (!producto) {
-        return res.status(404).json({
-            mensaje: 'Producto no encontrado'
+        if (productos.length === 0) {
+            return res.status(404).json({
+                mensaje: 'Producto no encontrado'
+            });
+        }
+
+        res.status(200).json(productos[0]);
+
+    } catch (error) {
+
+        console.error('Error al buscar el producto:', error);
+
+        res.status(500).json({
+            mensaje: 'Error interno del servidor'
         });
     }
 
-    producto.nombre = req.body.nombre;
-    producto.precio = req.body.precio;
-
-    res.json(producto);
 });
-app.delete('/api/productos/:id', (req, res) => {
 
-    const id = parseInt(req.params.id);
 
-    const indice = productos.findIndex(p => p.id === id);
+// POST - Crear producto
+app.post('/api/productos', async (req, res) => {
 
-    if (indice === -1) {
-        return res.status(404).json({
-            mensaje: 'Producto no encontrado'
+    try {
+
+        const { nombre, precio } = req.body;
+
+        if (!nombre || precio === undefined) {
+            return res.status(400).json({
+                mensaje: 'Los campos nombre y precio son obligatorios'
+            });
+        }
+
+        const [resultado] = await db.execute(
+            'INSERT INTO productos (nombre, precio) VALUES (?, ?)',
+            [nombre, precio]
+        );
+
+        res.status(201).json({
+            id: resultado.insertId,
+            nombre,
+            precio
+        });
+
+    } catch (error) {
+
+        console.error('Error al crear el producto:', error);
+
+        res.status(500).json({
+            mensaje: 'Error interno del servidor'
         });
     }
 
-    productos.splice(indice, 1);
-
-    res.json({
-        mensaje: 'Producto eliminado correctamente'
-    });
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
+
+// PUT - Actualizar producto
+app.put('/api/productos/:id', async (req, res) => {
+
+    try {
+
+        const { id } = req.params;
+        const { nombre, precio } = req.body;
+
+        if (!nombre || precio === undefined) {
+            return res.status(400).json({
+                mensaje: 'Los campos nombre y precio son obligatorios'
+            });
+        }
+
+        const [resultado] = await db.execute(
+            'UPDATE productos SET nombre = ?, precio = ? WHERE id = ?',
+            [nombre, precio, id]
+        );
+
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({
+                mensaje: 'Producto no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            mensaje: 'Producto actualizado correctamente',
+            producto: {
+                id: Number(id),
+                nombre,
+                precio
+            }
+        });
+
+    } catch (error) {
+
+        console.error('Error al actualizar el producto:', error);
+
+        res.status(500).json({
+            mensaje: 'Error interno del servidor'
+        });
+    }
+
 });
+
+
+// DELETE - Eliminar producto
+app.delete('/api/productos/:id', async (req, res) => {
+
+    try {
+
+        const { id } = req.params;
+
+        const [resultado] = await db.execute(
+            'DELETE FROM productos WHERE id = ?',
+            [id]
+        );
+
+        if (resultado.affectedRows === 0) {
+            return res.status(404).json({
+                mensaje: 'Producto no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            mensaje: 'Producto eliminado correctamente'
+        });
+
+    } catch (error) {
+
+        console.error('Error al eliminar el producto:', error);
+
+        res.status(500).json({
+            mensaje: 'Error interno del servidor'
+        });
+    }
+
+});
+
+
+// Iniciar servidor y comprobar conexión
+async function iniciarServidor() {
+
+    try {
+
+        const conexion = await db.getConnection();
+
+        console.log('Conectado exitosamente a la base de datos');
+
+        conexion.release();
+
+        app.listen(PORT, () => {
+            console.log(`Servidor ejecutándose en http://localhost:${PORT}`);
+        });
+
+    } catch (error) {
+
+        console.error('Error al conectar con la base de datos:', error.message);
+
+        process.exit(1);
+    }
+
+}
+
+iniciarServidor();
